@@ -1,0 +1,86 @@
+Projektdokumentation WCF-projekt - av Sofia Zaid
+
+Mitt projekt är som helhet strukturerat i form av två servicar: en ”standard” WCF-service med 
+flera endpoints som är konfigurerade både för TCP- och HTTP- protokollen samt en separat 
+WCF-service som exponerar en del av min CarRental-service’s operationer i form av ett REST-api 
+(via HTTP-protokollet). Valet att göra en separat service för REST-api:t grundas i att servicetypen 
+kräver en del annan konfiguration i jämförelse med en ”standard” WCF-service. Man skulle kunna 
+argumentera för att detta val gör det enklare att vid behov använda och anpassa respektive service 
+och dess operationer. En viktig skillnad mellan ”standard” WCF-servicen och REST-WCF-servicen är 
+att den förra använder sig av SOAP-meddelanden för kommunikation medan den senare enbart använder 
+HTTP-requests. Enligt en definition från Microsoft själva kan man säga att WCF SOAP-services är 
+operationsbaserade medan WCF REST-services är resursbaserade 
+(https://docs.microsoft.com/en-us/previous-versions/dotnet/netframework-4.0/hh323724(v=vs.100). 
+Den binding som används för att konfigurera en REST-WCF-service är: WebHttpBinding. 
+
+Att jag ej valde att dela upp huvud-servicen i flera olika WCF-services (man skulle ha 
+kunnat tänkt sig t.ex. följande: CarService, CustomerService och BookingService) var att 
+ansvarsområdet för CarRentalService ändå är relativt begränsat, den ska hantera administration 
+av bilar, kunder och bokningar för en biluthyrningsfirma. Istället ansågs det utifrån det givna 
+användningfallet tillräckligt med en WCF-service men med flera service-Interface (och endpoints) 
+som representerar olika ansvarsområden inom servicen: ICarService, ICustomerService, IBookingService 
+och ICarLeasingService. Nödvändigheten i att inkludera det sistnämnda interfacet/endpointen kan 
+diskuteras, att det definierades grundades i tanken att skilja ut  bokningsadministrationen från 
+administrationen som kommer med det faktiska utlämnandet och återlämnandet av en bokad bil. Om 
+man i framtiden t.ex. vill låta kunder boka även andra saker förutom bilar, kanske tjänster relterade 
+till uthyrningen, men som ej inkluderar utlämning och återlämning, kan en sådan uppdelning av 
+ansvarsområden vara användbar.
+
+I övrigt funderade jag på att skapa mer generella interface såsom IVehicleService, med flera. 
+Detta kan man argumentera för hade gjort det enklare att utöka WCF-servicen om man i framtiden 
+t.ex. skulle vilja hyra ut även andra fordon såsom t.ex. cyklar. Det som gjorde att detta alternativ 
+ändå valdes bort var beslutet om att se vissa begränsningar. Utifrån förutsättningarna vi fått 
+veta för projektet verkade det ej relevant att tänka så brett. Skulle man inkludera fordon mer 
+generellt skulle vi inte tala om en biluthyrningsservice, att i nuläget arbeta vidare utifrån det 
+mer generella perspektivet ansågs överflödigt utifrån uppdragsgivarens beskrivning.
+
+För hostingen av de två servicarna gjorde jag först två separata konsol-app projekt. Separat hosting 
+av respektive service skulle kanske vara att föredra i produktionsmiljö, åtminstone om vi tänker oss 
+att det kommer vara ganska högt tryck på respektive service. Då man i produktionsmiljö ej använder sig 
+av konsol-app-hosting bestämde jag mig dock för att testa att hosta båda servicar via ett konsol-app-projekt. 
+I App.Config-filen konfigurerades två separata service-block och i Program.cs kedjades initaliseringen av 
+hostinstanserna för att köra båda hostar samtidigt.
+
+För ”standard” WCF-servicen användes följande bindings för att konfigurera endpoints: WsHttpBinding och NetTcpBinding. 
+Till en början användes även BasicHttpBinding för vissa endpoints då den har vissa interoperabilitets-fördelar som 
+WsHttpBinding saknar (bl.a  bakåtkompatibilitet med äldre web services, vad jag förstått det som). Då jag för projektet 
+ifråga inte hade någon anledning att förutsätta ett så brett behov av interoperabilitet byttes dock detta ut så att 
+samtliga http-endpoints i standard-WCF-servicen använder sig av den säkrare WsHttpBinding. Meddelanden skickade 
+via en endpoint som har denna binding krypteras per default vilket är bra ur säkerhetshänseende. I en del 
+ServiceContract har jag ändå explicit definierat protectionlevel Sign respektive SignAndEncrypt för att exemplifiera 
+skillnaden mellan dessa. Med Sign signeras meddelandena vilket bidrar till att vi kan upprätthålla ”message integrity”- 
+genom att kontrollera signaturen kan vi se att det meddelande som skickades också är det som faktiskt mottas. Om våra 
+meddelanden passerar ett antal ”mellanhänder” på vägen innan de når slutmottagaren, kan då slutmottagaren (i.e klient 
+eller server) verifiera att meddelande är intakt. Med SignAndEncrypt definierar vi dessutom att meddelandena som 
+skickas för operationen ifråga krypteras (ej är synliga i klartext när de skickas över nätverket). För endpoints med 
+TCP-binding är defaultvärdet för ”security mode” Transport, vilket innebär att meddelanden bara är krypterade på vägen 
+mellan olika ”mellanhänder”, vilket kan anses vara mindre säkert än Message-security. För att göra TCP-endpointsen mer 
+säkra och så att de uppfyller ”end-to-end”-security definierade jag i App.Config-filen för hosten att security mode 
+för alla endpoints med TCP-binding ska vara Message.
+
+Jag har tänkt mig att min standard WCF-service ska vara ett ”backoffice”-system som som ska kunna användas av personal 
+på en eller flera biluthyrningsfirmor (olika kundorganisationer). Pågrund av detta ansågs det vara viktigt att skapa 
+förutsättningar för ”end-to-end”-security vilket man ej får genom security mode Transport. Ett argument för att ha 
+Transport-security istället för Message-security skulle dock kunna vara det att det bättre främjar interoperabilitet. 
+För att kunna ha Message-security krävs att både server och klient stödjer WS-säkerhetsspecifikationen. Att i viss mån 
+kräva att kunder anpassar sig efter hur ens service är uppbyggd är dock inte heller helt orimligt.
+
+Message contract kom att användas för att definiera två klasser utöver domänklasserna:  CarRequest och CarInfo. 
+I dessa klasser definierades mer specifikt hur request- och response- meddelandena för några operationer kopplade 
+till ICarService-interfacet skulle se ut. I requestens header ingår propertyn LicenseKey och i requestens body ingår CarId. 
+I klassen ApiMethods definierades en metod GetCarInfo som tar en request (innehållandes värden för CarId och LicenseKey) 
+som argument. För att klienten ska få tillbaka data om en bil måste inmatad Licensekey (som skickas med i requesten från 
+klienten till servern) vara korrekt, om så är fallet skickar servern tillbaka ett CarInfo-objekt. Att jag enbart använde 
+message contract för att definiera strukturen på SOAP-meddelandena som utväxlas rörande Car-objekt hade ingen specifik 
+anledning utan det ansågs vara ett lämpligt exempel. Vid läsning om message contract framstod det även som att man i 
+vanliga fall oftast inte vill/behöver specificera strukturen för body och header för sina SOAP-meddelanden i sådan detalj. 
+Ofta räcker det då att använda sig av DataContract.
+
+Vad gäller Exception-hantering har jag försökt att täcka in detta på så många ställen som möjligt. Då metoderna som interagerar 
+med databasen definieras i lagret BusinessLogic i klassen ApiMethods är det också där jag implementerat mina FaultExceptions. För att 
+testa att definiera egna mer specifika typer av FaultExceptions för att kasta anpassade undantag beroende på fel skapades även 
+bl.a. klasserna EntityNotFoundFault och DbUpdateFault. När en entitet ej återfinns på servern eller det ej går att uppdatera en 
+entitet är det av värde att skicka med denna information till klienten. Om man skulle vidareutveckla WCF-servicen skulle det vara 
+bra att skapa specifika typer för samtliga identifierade FaultExceptions, det eftersom det är best practice att kasta typade-
+FaultExceptions. I förlängningen är det även önskvärt att på serversidan hantera fel som kan uppstå relaterat till  serviceinstansers 
+livscykel, kommunikationskanaler mellan service och klienter, etc.
